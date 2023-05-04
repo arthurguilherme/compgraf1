@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+        <title>WebGL</title>
+    </head>
+
+    <body class="vsc-initialized" cz-shortcut-listen="true">
+        <canvas id="theCanvas" width="400" height="400">
+            Please use a browser that supports "canvas"
+        </canvas>
+
+        <p>Type: "r", "g", "b" or "w"</p>
+
+        <script id="vertexShader" type="x-shader/x-vertex">
+            uniform mat4 transform;
+            attribute vec4 a_Position;
+            attribute vec4 a_Color;
+            varying vec4 color;
+            void main()
+            {
+              color = a_Color;
+              gl_PointSize = 8.0;
+
+              gl_Position = transform * a_Position;
+            }
+        </script>
+
+        <script id="fragmentShader" type="x-shader/x-fragment">
+            // In a webgl fragment shader, float precision has to be specified before
+            // any other variable declarations (in this case, "medium" precision)
+            precision mediump float;
+            varying vec4 color;
+            void main()
+            {
+              gl_FragColor = color;
+            }
+        </script>
+        <script src="./WebGL_files/cuon-utils.js"></script>
+        <script src="./WebGL_files/cuon-matrix.js"></script>
+        <script src="./WebGL_files/RotatingSquare2.js"></script>
+        <script>
+            window.onload = mainEntrance;
+        </script>
+
+
+<iframe frameborder="0" scrolling="no" style="background-color: transparent; border: 0px; display: none;" src="./WebGL_files/saved_resource.html"></iframe><div id="GOOGLE_INPUT_CHEXT_FLAG" style="display: none;" input="" input_stat="{&quot;tlang&quot;:true,&quot;tsbc&quot;:true,&quot;pun&quot;:true,&quot;mk&quot;:true,&quot;ss&quot;:true}"></div></body></html>
