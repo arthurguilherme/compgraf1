@@ -1,0 +1,38 @@
+<!--  Hierarchical transformation demo.
+Vertex shader does basic Lambert shading. -->
+
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>Rotor Hierarchy</title>
+    </head>
+
+    <body onload="main()">
+        <canvas id="webgl" width="380" height="480">
+            Please use a browser that supports "canvas"
+        </canvas>
+        <p>&larr;&rarr;: arm1 rotation(y-axis), &uarr;&darr;: joint1 rotation(z-axis)</p>
+        <br />
+        <details>
+            <summary style="font-size: 120%">
+                Keyboard controls (drag on the object to rotate it):
+            </summary>
+
+            <ul style="list-style: none">
+                <li>space - pause/resume animation</li>
+                <li>t, T - rotate turbine</li>
+                <li>g, G - rotate generator</li>
+                <li>r, R - rotor direction (clockwise/counter-clockwise)</li>
+                <li>b, B - blade pitch (affects rotor rotation speed)</li>
+                <li>o - reset rotation</li>
+                <li>↑,↓ - Zoom out/in</li>
+            </ul>
+        </details>
+        <script src="./WebGL_files/webgl-utils.js"></script>
+        <script src="./WebGL_files/webgl-debug.js"></script>
+        <script src="./WebGL_files/cuon-utils.js"></script>
+        <script src="./WebGL_files/cuon-matrix.js"></script>
+        <script src="HierarchyWithTree4.js"></script>
+    </body>
+</html>
