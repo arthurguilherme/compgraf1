@@ -1,332 +1,683 @@
-// MultiJointModel_segment.js (c) 2012 matsuda
-// Vertex shader program
-var VSHADER_SOURCE =
-  'attribute vec4 a_Position;\n' +
-  'attribute vec4 a_Normal;\n' +
-  'uniform mat4 u_MvpMatrix;\n' +
-  'uniform mat4 u_NormalMatrix;\n' +
-  'varying vec4 v_Color;\n' +
-  'void main() {\n' +
-  '  gl_Position = u_MvpMatrix * a_Position;\n' +
-  // The followings are some shading calculation to make the arm look three-dimensional
-  '  vec3 lightDirection = normalize(vec3(0.0, 0.5, 0.7));\n' + // Light direction
-  '  vec4 color = vec4(0.30, 0.725, 0.05, 1.0);\n' +  // Robot color
-  '  vec3 normal = normalize((u_NormalMatrix * a_Normal).xyz);\n' +
-  '  float nDotL = max(dot(normal, lightDirection), 0.0);\n' +
-  '  v_Color = vec4(color.rgb * nDotL + vec3(0.1), color.a);\n' +
-  '}\n';
+/**
+ * @file
+ *
+ * Summary.
+ * <p>Hierarchical Robot object using a matrix stack.</p>
+ *
+ * @author Paulo Roma
+ * @since 27/09/2016
+ * @see <a href="/WebGL/labs/WebGL/Assignment_3/Hierarchy.html">link</a>
+ * @see <a href="/WebGL/labs/WebGL/Assignment_3/Hierarchy.js">source</a>
+ * @see <a href="/WebGL/labs/WebGL/teal_book/cuon-matrix.js">cuon-matrix</a>
+ * @see <a href="/roma/Computer Graphics (3rd Edition).pdf#page=189">Foley</a>
+ * @see <a href="https://www.cs.drexel.edu/~david/Classes/ICG/Lectures_new/L-14_HierchModels.pdf">Hierarchical Modeling</a>
+ * @see <a href="/WebGL/labs/WebGL/Assignment_3/5.hierarchy.pdf">Hierarchy Tutorial</a>
+ * @see <img src="../robot3.png" width="256"> <img src="../robot-full.png" width="420">
+ * @see <img src="../camera_view_frustum.svg" width="340"> <img src="../side_view_frustum.png" width="340">
+ */
 
-// Fragment shader program
-var FSHADER_SOURCE =
-  '#ifdef GL_ES\n' +
-  'precision mediump float;\n' +
-  '#endif\n' +
-  'varying vec4 v_Color;\n' +
-  'void main() {\n' +
-  '  gl_FragColor = v_Color;\n' +
-  '}\n';
+"use strict";
 
-function main() {
-  // Retrieve <canvas> element
-  var canvas = document.getElementById('webgl');
+// A few global variables...
 
-  // Get the rendering context for WebGL
-  var gl = getWebGLContext(canvas);
-  if (!gl) {
-    console.log('Failed to get the rendering context for WebGL');
+/**
+ * The OpenGL context.
+ * @type {WebGL2RenderingContext}
+ */
+var gl;
+
+/**
+ * generatorBloble to a buffer on the GPU.
+ * @type {WebGLBuffer}
+ */
+var vertexBuffer;
+
+/**
+ * generatorBloble to a buffer on the GPU.
+ * @type {WebGLBuffer}
+ */
+var vertexNormalBuffer;
+
+/**
+ * generatorBloble to a buffer on the GPU.
+ * @type {WebGLBuffer}
+ */
+var vertexColorBuffer;
+
+/**
+ * generatorBloble to the compiled shader program on the GPU.
+ * @type {WebGLProgram}
+ */
+var lightingShader;
+
+/**
+ * Joint angles.
+ * @type {Object<{String:Number}>}
+ */
+var joint = {
+  shaft: 0.0,
+  base: 0.0,
+  generator: 0.0,
+  generatorBlob: 0.0,
+  rotor: 45.0,
+  rotorBlob: 45.0,
+  blade: 45.0,
+};
+
+/**
+ * Transformation matrix that is the root of 5 objects in the scene.
+ * @type {Matrix4}
+ */
+
+/**  @type {Matrix4} */
+var baseMatrix = new Matrix4()
+  .setTranslate(0, -17.5, 0)
+  .rotate(joint.base, 1, 0, 0)
+
+var shaftMatrix = new Matrix4()
+  .setTranslate(0, 0.5/2 + 25/2, 0)
+  .rotate(joint.shaft, 1, 0, 0)
+
+/**  @type {Matrix4} */
+var generatorMatrix = new Matrix4()
+  .setTranslate(0, 25/2 + 3/2, 0)
+  .rotate(joint.generator, 1, 0, 0)
+
+/**  @type {Matrix4} */
+var generatorBlobMatrix = new Matrix4()
+  .setTranslate(0, 3/2 + 0.3/2, 0)
+  .rotate(joint.generatorBlob, 0, 1, 0);
+
+/**  @type {Matrix4} */
+var rotorMatrix = new Matrix4()
+  .setTranslate(0, -0.3/2 - 3/2, 6/2 + 1.5/2)
+  .rotate(joint.rotor, 0, 0, 1);
+
+/**  @type {Matrix4} */
+var rotorBlobMatrix = new Matrix4()
+  .setTranslate(0, 0, 1.5/2 + 0.5/2)
+  .rotate(joint.rotor, 0, 0, 1);
+
+/**  @type {Matrix4} */
+var bladeMatrix = new Matrix4()
+  .setTranslate(0, 0.0, -0.5/2 -1.5/2)
+  .rotate(joint.blade, 0, 0, 1);
+
+var baseMatrixLocal = new Matrix4().setScale(6, 0.5, 6);
+var shaftMatrixLocal = new Matrix4().setScale(2, 25, 2);
+var generatorMatrixLocal = new Matrix4().setScale(4, 3, 6);
+var generatorBlobMatrixLocal = new Matrix4().setScale(0.5*4, 0.3*3, 0.8*6);
+var rotorMatrixLocal = new Matrix4().setScale(1.5, 1.5, 1.5);
+var rotorBlobMatrixLocal = new Matrix4().setScale(0.5, 0.5, 0.5);
+var bladeMatrixLocal = new Matrix4().setScale(1, 20, 0.3);
+
+/**
+ * Camera position.
+ * @type {Array<Number>}
+ */
+var eye = [20, 20, 20];
+
+/**
+ * View matrix.
+ * @type {Matrix4}
+ */
+// prettier-ignore
+var viewMatrix = new Matrix4().setLookAt(
+  ...eye,     // eye
+  0, 0, 0,    // at - looking at the origin
+  0, 1, 0     // up vector - y axis
+);
+
+/**
+ * Model matrix.
+ * @type {Matrix4}
+ */
+var modelMatrix = new Matrix4();
+
+/**
+ * Returns the magnitude (length) of a vector.
+ * @param {Array<Number>} v n-D vector.
+ * @returns {Number} vector length.
+ * @see https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Array/Reduce
+ */
+var vecLen = (v) =>
+  Math.sqrt(v.reduce((accumulator, value) => accumulator + value * value, 0));
+
+/**
+ * View distance.
+ * @type {Number}
+ */
+var viewDistance = vecLen(eye);
+
+/**
+ * <p>Projection matrix.</p>
+ * Here use aspect ratio 3/2 corresponding to canvas size 600 x 400.
+ * @type {Matrix4}
+ */
+var projection = new Matrix4().setPerspective(45, 1.5, 0.1, 1000);
+
+/**
+ * Object to enable rotation by mouse dragging (arcball).
+ * @type {SimpleRotator}
+ */
+var rotator;
+
+/**
+ * A very basic stack class,
+ * for keeping a hierarchy of transformations.
+ * @class
+ */
+class Stack {
+  /**
+   * Constructor.
+   * @constructs Stack
+   */
+  constructor() {
+    /** Array for holding the stack elements. */
+    this.elements = [];
+    /** Top of the stack. */
+    this.t = 0;
+  }
+
+  /**
+   * Pushes a given matrix onto this stack.
+   * @param {Matrix4} m transformation matrix.
+   */
+  push(m) {
+    this.elements[this.t++] = m;
+  }
+
+  /**
+   * Return the matrix at the top of this stack.
+   * @return {Matrix4} m transformation matrix.
+   */
+  top() {
+    if (this.t <= 0) {
+      console.log("top = ", this.t);
+      console.log("Warning: stack underflow");
+    } else {
+      return this.elements[this.t - 1];
+    }
+  }
+
+  /**
+   * Pops the matrix at the top of this stack.
+   * @return {Matrix4} m transformation matrix.
+   */
+  pop() {
+    if (this.t <= 0) {
+      console.log("Warning: stack underflow");
+    } else {
+      this.t--;
+      var temp = this.elements[this.t];
+      this.elements[this.t] = undefined;
+      return temp;
+    }
+  }
+
+  /**
+   * Returns whether this stack is empty.
+   * @returns {Boolean} true if the stack is empty.
+   */
+  isEmpty() {
+    return this.t <= 0;
+  }
+}
+
+/**
+ * <p>A cube model.</p>
+ *
+ * Creates data (numVertices, vertices, colors, and normal vectors)
+ * for a unit cube. <br>
+ * (Note this is a "self-invoking" anonymous function.)
+ *
+ * @type {cube_data}
+ */
+var cube = (() => {
+  // vertices of cube
+  // prettier-ignore
+  var rawVertices = new Float32Array([
+      -0.5, -0.5, 0.5,
+      0.5, -0.5, 0.5,
+      0.5, 0.5, 0.5,
+      -0.5, 0.5, 0.5,
+      -0.5, -0.5, -0.5,
+      0.5, -0.5, -0.5,
+      0.5, 0.5, -0.5,
+      -0.5, 0.5, -0.5
+    ]);
+
+  // prettier-ignore
+  var rawColors = new Float32Array([
+      1.0, 0.0, 0.0, 1.0,  // red
+      0.0, 1.0, 0.0, 1.0,  // green
+      0.0, 0.0, 1.0, 1.0,  // blue
+      1.0, 1.0, 0.0, 1.0,  // yellow
+      1.0, 0.0, 1.0, 1.0,  // magenta
+      0.0, 1.0, 1.0, 1.0,  // cyan
+    ]);
+
+  // prettier-ignore
+  var rawNormals = new Float32Array([
+      0, 0, 1,
+      1, 0, 0,
+      0, 0, -1,
+      -1, 0, 0,
+      0, 1, 0,
+      0, -1, 0
+    ]);
+
+  // prettier-ignore
+  var indices = new Uint16Array([
+      0, 1, 2, 0, 2, 3,  // +z face
+      1, 5, 6, 1, 6, 2,  // +x face
+      5, 4, 7, 5, 7, 6,  // -z face
+      4, 0, 3, 4, 3, 7,  // -x face
+      3, 2, 6, 3, 6, 7,  // +y face
+      4, 5, 1, 4, 1, 0   // -y face
+    ]);
+
+  var verticesArray = [];
+  var colorsArray = [];
+  var normalsArray = [];
+  for (var i = 0; i < 36; ++i) {
+    // for each of the 36 vertices...
+    var face = Math.floor(i / 6);
+    var index = indices[i];
+
+    // (x, y, z): three numbers for each point
+    for (var j = 0; j < 3; ++j) {
+      verticesArray.push(rawVertices[3 * index + j]);
+    }
+
+    // (r, g, b, a): four numbers for each point
+    for (var j = 0; j < 4; ++j) {
+      colorsArray.push(rawColors[4 * face + j]);
+    }
+
+    // three numbers for each point
+    for (var j = 0; j < 3; ++j) {
+      normalsArray.push(rawNormals[3 * face + j]);
+    }
+  }
+
+  /**
+   * Returned value is an object with four attributes:
+   * numVertices, vertices, colors, and normals.
+   *
+   * @return {Object<{numVertices: Number,
+   *                  vertices: Float32Array,
+   *                  colors: Float32Array,
+   *                  normals: Float32Array}>}
+   * cube associated attributes.
+   * @callback cube_data
+   */
+  return {
+    numVertices: 36, // number of indices
+    vertices: new Float32Array(verticesArray), // 36 * 3 = 108
+    colors: new Float32Array(colorsArray), // 36 * 4 = 144
+    normals: new Float32Array(normalsArray), // 36 * 3 = 108
+  };
+})();
+
+/**
+ * Return a matrix to transform normals, so they stay
+ * perpendicular to surfaces after a linear transformation.
+ * @param {Matrix4} model model matrix.
+ * @param {Matrix4} view view matrix.
+ * @returns {Float32Array} modelview transposed inverse.
+ */
+function makeNormalMatrixElements(model, view) {
+  var n = new Matrix4(view).multiply(model);
+  n.transpose();
+  n.invert();
+  n = n.elements;
+  // prettier-ignore
+  return new Float32Array([
+      n[0], n[1], n[2],
+      n[4], n[5], n[6],
+      n[8], n[9], n[10]
+    ]);
+}
+
+/**
+ * Translate keydown events to strings.
+ * @param {KeyboardEvent} event keyboard event.
+ * @return {String | null}
+ * @see http://javascript.info/tutorial/keyboard-events
+ */
+function getChar(event) {
+  event = event || window.event;
+  let charCode = event.key || String.fromCharCode(event.which);
+  return charCode;
+}
+
+/**
+ * <p>generatorBlobler for keydown events.</p>
+ * Adjusts object rotations.
+ * @param {KeyboardEvent} event keyboard event.
+ */
+function generatorBlobleKeyPress(event) {
+  var ch = getChar(event);
+  var d;
+  let opt = document.getElementById("options");
+  switch (ch) {
+    case "t":
+      joint.blade += 15;
+      bladeMatrix.setTranslate(0, 0, 0).rotate(joint.shaft, 0, 0, 1);
+      break;
+    case "T":
+      joint.blade -= 15;
+      //bladeMatrix.setTranslate(0, 0, 0).rotate(joint.shaft, 0, 0, 1);
+      break;
+    case "s":
+      joint.base += 15;
+      // rotate base clockwise about a point 2 units above its center
+      var currentbaseRot = new Matrix4()
+        .setTranslate(0, 2, 0)
+        .rotate(-joint.base, 1, 0, 0)
+        .translate(0, -2, 0);
+      baseMatrix.setTranslate(6.5, 2, 0).multiply(currentbaseRot);
+      break;
+    case "S":
+      joint.base -= 15;
+      var currentbaseRot = new Matrix4()
+        .setTranslate(0, 2, 0)
+        .rotate(-joint.base, 1, 0, 0)
+        .translate(0, -2, 0);
+      baseMatrix.setTranslate(6.5, 2, 0).multiply(currentbaseRot);
+      break;
+    case "a":
+      joint.generator += 15;
+      // rotate generator clockwise about its top front corner
+      var currentgenerator = new Matrix4()
+        .setTranslate(0, 2.5, 1.0)
+        .rotate(-joint.generator, 1, 0, 0)
+        .translate(0, -2.5, -1.0);
+      generatorMatrix.setTranslate(0, -5, 0).multiply(currentgenerator);
+      break;
+    case "A":
+      joint.generator -= 15;
+      var currentgenerator = new Matrix4()
+        .setTranslate(0, 2.5, 1.0)
+        .rotate(-joint.generator, 1, 0, 0)
+        .translate(0, -2.5, -1.0);
+      generatorMatrix.setTranslate(0, -5, 0).multiply(currentgenerator);
+      break;
+    case "h":
+      joint.generatorBlob += 15;
+      generatorBlobMatrix.setTranslate(0, -4, 0).rotate(joint.generatorBlob, 0, 1, 0);
+      break;
+    case "H":
+      joint.generatorBlob -= 15;
+      generatorBlobMatrix.setTranslate(0, -4, 0).rotate(joint.generatorBlob, 0, 1, 0);
+      break;
+    case "l":
+      joint.rotor += 15;
+      rotorMatrix.setTranslate(0, 7, 0).rotate(joint.rotor, 0, 1, 0);
+      break;
+    case "L":
+      joint.rotor -= 15;
+      rotorMatrix.setTranslate(0, 7, 0).rotate(joint.rotor, 0, 1, 0);
+      break;
+    case "ArrowUp":
+      // Up pressed
+      d = rotator.getViewDistance();
+      d = Math.min(d + 1, 90);
+      rotator.setViewDistance(d);
+      break;
+    case "ArrowDown":
+      // Down pressed
+      d = rotator.getViewDistance();
+      d = Math.max(d - 1, 20);
+      rotator.setViewDistance(d);
+      break;
+    default:
+      return;
+  }
+  draw();
+
+  opt.innerHTML = `<br>${gl.getParameter(
+    gl.SHADING_LANGUAGE_VERSION
+  )}<br>${gl.getParameter(gl.VERSION)}`;
+}
+
+/**
+ * <p>Helper function.</p>
+ * Renders the cube shaftd on the model transformation
+ * on top of the stack and the given local transformation.
+ * @param {Matrix4} matrixStack matrix on top of the stack;
+ * @param {Matrix4} matrixLocal local transformation.
+ */
+function renderCube(matrixStack, matrixLocal) {
+  // bind the shader
+  gl.useProgram(lightingShader);
+
+  // get the index for the a_Position attribute defined in the vertex shader
+  var positionIndex = gl.getAttribLocation(lightingShader, "a_Position");
+  if (positionIndex < 0) {
+    console.log("Failed to get the storage location of a_Position");
     return;
   }
 
-  // Initialize shaders
-  if (!initShaders(gl, VSHADER_SOURCE, FSHADER_SOURCE)) {
-    console.log('Failed to intialize shaders.');
+  var normalIndex = gl.getAttribLocation(lightingShader, "a_Normal");
+  if (normalIndex < 0) {
+    console.log("Failed to get the storage location of a_Normal");
     return;
   }
 
-  // Set the vertex information
-  var n = initVertexBuffers(gl);
-  if (n < 0) {
-    console.log('Failed to set the vertex information');
+  var colorIndex = gl.getAttribLocation(lightingShader, "a_Color");
+  if (colorIndex < 0) {
+    console.log("Failed to get the storage location of a_Color");
     return;
   }
 
-  // Set the clear color and enable the depth test
-  gl.clearColor(0.0, 0.0, 1.0, 1.0);
-  gl.enable(gl.DEPTH_TEST);
+  // "enable" the a_position attribute
+  gl.enableVertexAttribArray(positionIndex);
+  gl.enableVertexAttribArray(normalIndex);
+  gl.enableVertexAttribArray(colorIndex);
 
-  // Get the storage locations of attribute and uniform variables
-  var a_Position = gl.getAttribLocation(gl.program, 'a_Position');
-  var u_MvpMatrix = gl.getUniformLocation(gl.program, 'u_MvpMatrix');
-  var u_NormalMatrix = gl.getUniformLocation(gl.program, 'u_NormalMatrix');
-  if (a_Position < 0 || !u_MvpMatrix || !u_NormalMatrix) {
-    console.log('Failed to get the storage location of attribute or uniform variable');
-    return;
-  }
+  // bind data for points and normals
+  gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+  gl.vertexAttribPointer(positionIndex, 3, gl.FLOAT, false, 0, 0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, vertexNormalBuffer);
+  gl.vertexAttribPointer(normalIndex, 3, gl.FLOAT, false, 0, 0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, vertexColorBuffer);
+  gl.vertexAttribPointer(colorIndex, 4, gl.FLOAT, false, 0, 0);
 
-  // Calculate the view projection matrix
-  var viewProjMatrix = new Matrix4();
-  viewProjMatrix.setPerspective(45.0, 2, 0.1, 1000.0);
-  viewProjMatrix.lookAt(20.0, 20.0, 20.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
+  var loc = gl.getUniformLocation(lightingShader, "view");
+  gl.uniformMatrix4fv(loc, false, viewMatrix.elements);
+  loc = gl.getUniformLocation(lightingShader, "projection");
+  gl.uniformMatrix4fv(loc, false, projection.elements);
+  loc = gl.getUniformLocation(lightingShader, "u_Color");
+  gl.uniform4f(loc, 0.0, 1.0, 0.0, 1.0);
+  var loc = gl.getUniformLocation(lightingShader, "lightPosition");
+  gl.uniform4f(loc, 5.0, 10.0, 5.0, 1.0);
 
-  // Register the event handler to be called on key press
-  document.onkeydown = function(ev){ keydown(ev, gl, n, viewProjMatrix, a_Position, u_MvpMatrix, u_NormalMatrix); };
+  var modelMatrixloc = gl.getUniformLocation(lightingShader, "model");
+  var normalMatrixLoc = gl.getUniformLocation(lightingShader, "normalMatrix");
 
-  draw(gl, n, viewProjMatrix, a_Position, u_MvpMatrix, u_NormalMatrix);
+  // transform using current model matrix on top of stack
+  var current = new Matrix4(matrixStack.top()).multiply(matrixLocal);
+  current = new Matrix4(modelMatrix).multiply(current);
+  gl.uniformMatrix4fv(modelMatrixloc, false, current.elements);
+  gl.uniformMatrix3fv(
+    normalMatrixLoc,
+    false,
+    makeNormalMatrixElements(current, viewMatrix)
+  );
+
+  gl.drawArrays(gl.TRIANGLES, 0, cube.numVertices);
+
+  // on safari 10, buffer cannot be disposed before drawing...
+  gl.bindBuffer(gl.ARRAY_BUFFER, null);
+  gl.useProgram(null);
 }
 
-var ANGLE_STEP = 3.0;     // The increments of rotation angle (degrees)
-var g_shaftAngle = 90.0;   // The rotation angle of shaft (degrees)
-var g_joint1Angle = 45.0; // The rotation angle of joint1 (degrees)
-var g_joint2Angle = 0.0;  // The rotation angle of joint2 (degrees)
-var g_joint3Angle = 0.0;  // The rotation angle of joint3 (degrees)
-
-function keydown(ev, gl, o, viewProjMatrix, a_Position, u_MvpMatrix, u_NormalMatrix) {
-  switch (ev.keyCode) {
-    case 40: // Up arrow key -> the positive rotation of joint1 around the z-axis
-      if (g_joint1Angle < 135.0) g_joint1Angle += ANGLE_STEP;
-      break;
-    case 38: // Down arrow key -> the negative rotation of joint1 around the z-axis
-      if (g_joint1Angle > -135.0) g_joint1Angle -= ANGLE_STEP;
-      break;
-    case 39: // Right arrow key -> the positive rotation of shaft around the y-axis
-      g_shaftAngle = (g_shaftAngle + ANGLE_STEP) % 360;
-      break;
-    case 37: // Left arrow key -> the negative rotation of shaft around the y-axis
-      g_shaftAngle = (g_shaftAngle - ANGLE_STEP) % 360;
-      break;
-    case 90: // 'ｚ'key -> the positive rotation of joint2
-      g_joint2Angle = (g_joint2Angle + ANGLE_STEP) % 360;
-      break;
-    case 88: // 'x'key -> the negative rotation of joint2
-      g_joint2Angle = (g_joint2Angle - ANGLE_STEP) % 360;
-      break;
-    case 86: // 'v'key -> the positive rotation of joint3
-      if (g_joint3Angle < 60.0)  g_joint3Angle = (g_joint3Angle + ANGLE_STEP) % 360;
-      break;
-    case 67: // 'c'key -> the nagative rotation of joint3
-      if (g_joint3Angle > -60.0) g_joint3Angle = (g_joint3Angle - ANGLE_STEP) % 360;
-      break;
-    default: return; // Skip drawing at no effective action
-  }
-  // Draw
-  draw(gl, o, viewProjMatrix, a_Position, u_MvpMatrix, u_NormalMatrix);
-}
-
-var g_baseBuffer = null;     // Buffer object for a base
-var g_shaftBuffer = null;     // Buffer object for shaft
-var g_generatorBuffer = null;     // Buffer object for generator
-var g_generatorBlobBuffer = null;     // Buffer object for a generatorBlob
-var g_rotorBuffer = null;   // Buffer object for rotors
-var g_rotorBlobBuffer = null;   // Buffer object for rotorsBlob
-var g_bladeBuffer = null;   // Buffer object for blade
-
-function generateBoxVertices(width, height, depth) {
-  const halfWidth = width / 2;
-  const halfHeight = height / 2;
-  const halfDepth = depth / 2;
-
-  const vertices = [
-    // Front face
-    -halfWidth, halfHeight, halfDepth,
-    halfWidth, halfHeight, halfDepth,
-    halfWidth, -halfHeight, halfDepth,
-    -halfWidth, -halfHeight, halfDepth,
-
-    // Back face
-    halfWidth, halfHeight, -halfDepth,
-    -halfWidth, halfHeight, -halfDepth,
-    -halfWidth, -halfHeight, -halfDepth,
-    halfWidth, -halfHeight, -halfDepth,
-
-    // Top face
-    -halfWidth, halfHeight, -halfDepth,
-    halfWidth, halfHeight, -halfDepth,
-    halfWidth, halfHeight, halfDepth,
-    -halfWidth, halfHeight, halfDepth,
-
-    // Bottom face
-    -halfWidth, -halfHeight, halfDepth,
-    halfWidth, -halfHeight, halfDepth,
-    halfWidth, -halfHeight, -halfDepth,
-    -halfWidth, -halfHeight, -halfDepth,
-
-    // Right face
-    halfWidth, halfHeight, halfDepth,
-    halfWidth, halfHeight, -halfDepth,
-    halfWidth, -halfHeight, -halfDepth,
-    halfWidth, -halfHeight, halfDepth,
-
-    // Left face
-    -halfWidth, halfHeight, -halfDepth,
-    -halfWidth, halfHeight, halfDepth,
-    -halfWidth, -halfHeight, halfDepth,
-    -halfWidth, -halfHeight, -halfDepth,
-  ];
-
-  return new Float32Array(vertices);
-}
-
-function initVertexBuffers(gl){
-  //    v6----- v5
-  //   /|      /|
-  //  v1------v0|
-  //  | |     | |
-  //  | |v7---|-|v4
-  //  |/      |/
-  //  v2------v3
-  var vertices_base = generateBoxVertices(6.0, 0.5, 6.0);
-  var vertices_shaft = generateBoxVertices(2.0,25.0,2.0)
-  var vertices_generator = generateBoxVertices(4.0, 3.0, 6.0);
-  var vertices_generatorBlob = generateBoxVertices(0.5,0.3,0.8)
-  var vertices_rotor = generateBoxVertices(1.5,1.5,1.5)
-  var vertices_rotorBlob = generateBoxVertices(0.5,0.5,0.5)
-  var vertices_blade = generateBoxVertices(1.0,20.0,0.3)
-
-  // Normal
-  var normals = new Float32Array([
-     0.0, 0.0, 1.0,  0.0, 0.0, 1.0,  0.0, 0.0, 1.0,  0.0, 0.0, 1.0, // v0-v1-v2-v3 front
-     1.0, 0.0, 0.0,  1.0, 0.0, 0.0,  1.0, 0.0, 0.0,  1.0, 0.0, 0.0, // v0-v3-v4-v5 right
-     0.0, 1.0, 0.0,  0.0, 1.0, 0.0,  0.0, 1.0, 0.0,  0.0, 1.0, 0.0, // v0-v5-v6-v1 up
-    -1.0, 0.0, 0.0, -1.0, 0.0, 0.0, -1.0, 0.0, 0.0, -1.0, 0.0, 0.0, // v1-v6-v7-v2 left
-     0.0,-1.0, 0.0,  0.0,-1.0, 0.0,  0.0,-1.0, 0.0,  0.0,-1.0, 0.0, // v7-v4-v3-v2 down
-     0.0, 0.0,-1.0,  0.0, 0.0,-1.0,  0.0, 0.0,-1.0,  0.0, 0.0,-1.0  // v4-v7-v6-v5 back
-  ]);
-
-  // Indices of the vertices
-  var indices = new Uint8Array([
-     0, 1, 2,   0, 2, 3,    // front
-     4, 5, 6,   4, 6, 7,    // right
-     8, 9,10,   8,10,11,    // up
-    12,13,14,  12,14,15,    // left
-    16,17,18,  16,18,19,    // down
-    20,21,22,  20,22,23     // back
-  ]);
-
-  // Write coords to buffers, but don't assign to attribute variables
-  g_baseBuffer = initArrayBufferForLaterUse(gl, vertices_base, 3, gl.FLOAT);
-  g_shaftBuffer = initArrayBufferForLaterUse(gl, vertices_shaft, 3, gl.FLOAT);
-  g_generatorBuffer = initArrayBufferForLaterUse(gl, vertices_generator, 3, gl.FLOAT);
-  g_generatorBlobBuffer = initArrayBufferForLaterUse(gl, vertices_generatorBlob, 3, gl.FLOAT);
-  g_rotorBuffer = initArrayBufferForLaterUse(gl, vertices_rotor, 3, gl.FLOAT);
-  g_rotorBlobBuffer = initArrayBufferForLaterUse(gl, vertices_rotorBlob, 3, gl.FLOAT);
-  g_bladeBuffer = initArrayBufferForLaterUse(gl, vertices_blade, 3, gl.FLOAT);
-  if (!g_baseBuffer || !g_shaftBuffer || !g_generatorBuffer || !g_generatorBlobBuffer
-    || !g_rotorBuffer || !g_rotorBlobBuffer || !g_bladeBuffer) return -1;
-
-  // Write normals to a buffer, assign it to a_Normal and enable it
-  if (!initArrayBuffer(gl, 'a_Normal', normals, 3, gl.FLOAT)) return -1;
-
-  // Write the indices to the buffer object
-  var indexBuffer = gl.createBuffer();
-  if (!indexBuffer) {
-    console.log('Failed to create the buffer object');
-    return -1;
-  }
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
-  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
-
-  return indices.length;
-}
-
-function initArrayBufferForLaterUse(gl, data, num, type){
-  var buffer = gl.createBuffer();   // Create a buffer object
-  if (!buffer) {
-    console.log('Failed to create the buffer object');
-    return null;
-  }
-  // Write date into the buffer object
-  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-  gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
-
-  // Store the necessary information to assign the object to the attribute variable later
-  buffer.num = num;
-  buffer.type = type;
-
-  return buffer;
-}
-
-function initArrayBuffer(gl, attribute, data, num, type){
-  var buffer = gl.createBuffer();   // Create a buffer object
-  if (!buffer) {
-    console.log('Failed to create the buffer object');
-    return false;
-  }
-  // Write date into the buffer object
-  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-  gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
-
-  // Assign the buffer object to the attribute variable
-  var a_attribute = gl.getAttribLocation(gl.program, attribute);
-  if (a_attribute < 0) {
-    console.log('Failed to get the storage location of ' + attribute);
-    return false;
-  }
-  gl.vertexAttribPointer(a_attribute, num, type, false, 0, 0);
-  // Enable the assignment of the buffer object to the attribute variable
-  gl.enableVertexAttribArray(a_attribute);
-
-  return true;
-}
-
-
-// Coordinate transformation matrix
-var g_modelMatrix = new Matrix4(), g_mvpMatrix = new Matrix4();
-
-function draw(gl, n, viewProjMatrix, a_Position, u_MvpMatrix, u_NormalMatrix) {
-  // Clear color and depth buffer
+/**
+ * <p>Code to actually render our geometry.</p>
+ * @param {Boolean} useRotator whether a {@link SimpleRotator} should be used.
+ */
+function draw(useRotator = true) {
+  // clear the framebuffer
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-  // Draw a base
-  var baseHeight = 10;
-  g_modelMatrix.setTranslate(0.0, -17.5, 0.0);
-  drawSegment(gl, n, g_baseBuffer, viewProjMatrix, a_Position, u_MvpMatrix, u_NormalMatrix);
+  if (useRotator) viewMatrix.elements = rotator.getViewMatrix();
 
-  // shaft
-  var shaftLength = 12.5;
-  g_modelMatrix.translate(0.0, baseHeight, 0.0);     // Move onto the base
-  g_modelMatrix.rotate(g_shaftAngle, 0.0, 1.0, 0.0);  // Rotate around the y-axis
-  drawSegment(gl, n, g_shaftBuffer, viewProjMatrix, a_Position, u_MvpMatrix, u_NormalMatrix); // Draw
+  // set up the matrix stack
+  var s = new Stack();
+  s.push(baseMatrix);
+  renderCube(s, baseMatrixLocal);
 
-  // generator
-  var generatorLength = 3.0;
-  g_modelMatrix.translate(0.0, shaftLength, 0.0);       // Move to joint1
-  g_modelMatrix.rotate(g_joint1Angle, 0.0, 1.0, 0.0);  // Rotate around the z-axis
-  drawSegment(gl, n, g_generatorBuffer, viewProjMatrix, a_Position, u_MvpMatrix, u_NormalMatrix); // Draw
+  // shaft relative to shaftDummy
+  s.push(new Matrix4(s.top()).multiply(shaftMatrix));
+  renderCube(s, shaftMatrixLocal);
 
-  // A generatorBlob
-  var generatorBlobLength = 2.0;
-  g_modelMatrix.translate(0.0, generatorLength, 0.0);       // Move to generatorBlob
-  g_modelMatrix.rotate(g_joint2Angle, 0.0, 1.0, 0.0);  // Rotate around the y-axis
-  drawSegment(gl, n, g_generatorBlobBuffer, viewProjMatrix, a_Position, u_MvpMatrix, u_NormalMatrix);  // Draw
+  // generator relative to generatorDummy
+  s.push(new Matrix4(s.top()).multiply(generatorMatrix));
+  renderCube(s, generatorMatrixLocal);
 
-  // Move to the center of the tip of the generatorBlob
-  g_modelMatrix.translate(0.0, generatorBlobLength, 0.0);
+  // generatorBlob relative to generatorDummy
+  s.push(new Matrix4(s.top()).multiply(generatorBlobMatrix));
+  renderCube(s, generatorBlobMatrixLocal);
 
-  // Draw rotor1
-  g_modelMatrix.translate(0.0, 0.0, 2.0);
-  g_modelMatrix.rotate(g_joint3Angle, 1.0, 0.0, 0.0);  // Rotate around the x-axis
-  drawSegment(gl, n, g_rotorBuffer, viewProjMatrix, a_Position, u_MvpMatrix, u_NormalMatrix);
+  // rotor relative to rotorDummy
+  s.push(new Matrix4(s.top()).multiply(rotorMatrix));
+  renderCube(s, rotorMatrixLocal);
 
+  // rotorBlob relative to rotorDummy
+  s.push(new Matrix4(s.top()).multiply(rotorBlobMatrix));
+  renderCube(s, rotorBlobMatrixLocal);
+
+  // blade relative to rotorDummy
+  s.push(new Matrix4(s.top()).multiply(bladeMatrix));
+  renderCube(s, bladeMatrixLocal);
+  s.pop();
+  s.pop();
+  s.pop();
+  s.pop();
+  s.pop();
+  s.pop();
+  s.pop();
+
+  if (!s.isEmpty()) {
+    console.log("Warning: pops do not match pushes");
+  }
 }
 
-var g_normalMatrix = new Matrix4();  // Coordinate transformation matrix for normals
+/**
+ * <p>Entry point when page is loaded.</p>
+ *
+ * Starts an {@link animate animation} loop.
+ *
+ * <p>Basically this function does setup that "should" only have to be done once,<br>
+ * while draw() does things that have to be repeated each time the canvas is
+ * redrawn.</p>
+ * @function
+ * @memberof Window
+ * @name anonymous_load
+ * @global
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/Window/load_event
+ */
+window.addEventListener("load", (event) => {
+  // retrieve <canvas> element
+  var canvas = document.getElementById("theCanvas");
 
-// Draw segments
-function drawSegment(gl, n, buffer, viewProjMatrix, a_Position, u_MvpMatrix, u_NormalMatrix) {
-  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-  // Assign the buffer object to the attribute variable
-  gl.vertexAttribPointer(a_Position, buffer.num, buffer.type, false, 0, 0);
-  // Enable the assignment of the buffer object to the attribute variable
-  gl.enableVertexAttribArray(a_Position);
+  // key generatorBlobler
+  window.addEventListener("keydown", (event) => {
+    if (
+      ["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].indexOf(
+        event.code
+      ) > -1
+    ) {
+      event.preventDefault();
+    }
+    generatorBlobleKeyPress(event);
+  });
 
-  // Calculate the model view project matrix and pass it to u_MvpMatrix
-  g_mvpMatrix.set(viewProjMatrix);
-  g_mvpMatrix.multiply(g_modelMatrix);
-  gl.uniformMatrix4fv(u_MvpMatrix, false, g_mvpMatrix.elements);
-  // Calculate matrix for normal and pass it to u_NormalMatrix
-  g_normalMatrix.setInverseOf(g_modelMatrix);
-  g_normalMatrix.transpose();
-  gl.uniformMatrix4fv(u_NormalMatrix, false, g_normalMatrix.elements);
-  // Draw
-  gl.drawElements(gl.TRIANGLES, n, gl.UNSIGNED_BYTE, 0);
-}
+  gl = canvas.getContext("webgl2");
+  if (!gl) {
+    console.log("Failed to get the rendering context for WebGL");
+    return;
+  }
+
+  // load and compile the shader pair, using utility from the teal book
+  var vshaderSource = document.getElementById(
+    "vertexLightingShader"
+  ).textContent;
+  var fshaderSource = document.getElementById(
+    "fragmentLightingShader"
+  ).textContent;
+  if (!initShaders(gl, vshaderSource, fshaderSource)) {
+    console.log("Failed to initialize shaders.");
+    return;
+  }
+  lightingShader = gl.program;
+  gl.useProgram(null);
+
+  // At any given time there can only be one buffer bound for each type
+  // (ARRAY_BUFFER and ELEMENT_ARRAY_BUFFER),
+  // so the flow is to bind a buffer and set its data followed
+  // by setting up the vertex attribute pointers for that specific buffer,
+  // then proceed to the next buffer:
+
+  // buffer for vertex positions for triangles
+  vertexBuffer = gl.createBuffer();
+  if (!vertexBuffer) {
+    console.log("Failed to create the buffer object");
+    return;
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, cube.vertices, gl.STATIC_DRAW);
+
+  // buffer for vertex normals
+  vertexNormalBuffer = gl.createBuffer();
+  if (!vertexNormalBuffer) {
+    console.log("Failed to create the buffer object");
+    return;
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, vertexNormalBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, cube.normals, gl.STATIC_DRAW);
+
+  // buffer for vertex colors
+  vertexColorBuffer = gl.createBuffer();
+  if (!vertexColorBuffer) {
+    console.log("Failed to create the buffer object");
+    return;
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, vertexColorBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, cube.colors, gl.STATIC_DRAW);
+
+  // buffer is not needed anymore (not necessary, really)
+  gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+  // specify a fill color for clearing the framebuffer
+  gl.clearColor(0.9, 0.9, 0.9, 1.0);
+
+  gl.enable(gl.DEPTH_TEST);
+  gl.enable(gl.CULL_FACE);
+  gl.cullFace(gl.BACK);
+
+  // fix aspect ratio
+  projection = new Matrix4().setPerspective(
+    60,
+    canvas.width / canvas.height,
+    0.1,
+    1000
+  );
+
+  // create new rotator object
+  rotator = new SimpleRotator(canvas, draw);
+  rotator.setViewMatrix(viewMatrix.elements);
+  rotator.setViewDistance(viewDistance);
+
+  /**
+   * <p>Define an animation loop.</p>
+   * Start drawing!
+   * @callback animate
+   */
+  (function animate() {
+    draw();
+    // requestAnimationFrame(animate);
+  })();
+});
