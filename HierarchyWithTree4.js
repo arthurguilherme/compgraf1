@@ -64,6 +64,11 @@ var joint = {
   blade: 45.0,
 };
 
+// Animation control variables
+var pause = 0;
+var velocity = 1;
+var way = 1;
+
 /**
  * Transformation matrix that is the root of 5 objects in the scene.
  * @type {Matrix4}
@@ -362,6 +367,8 @@ function generatorBlobleKeyPress(event) {
   var d;
   let opt = document.getElementById("options");
   switch (ch) {
+    case " ":
+      pause = !pause;
     case "t":
       joint.base += 15;
       baseMatrix.setTranslate(0, -17.5, 0)
@@ -391,24 +398,16 @@ function generatorBlobleKeyPress(event) {
       generatorMatrix.setTranslate(0, -5, 0).multiply(currentgenerator);
       break;
     case "r":
-      joint.rotor += 15;
-      var currentgenerator = new Matrix4()
-        .rotate(-joint.rotor, 0, 0, 1)
-      rotorMatrix.setTranslate(0, -1.5, 3.75).multiply(currentgenerator);
+      way = 0;
       break;
     case "R":
-      joint.rotor -= 15;
-      var currentgenerator = new Matrix4()
-        .rotate(-joint.rotor, 0, 0, 1)
-      rotorMatrix.setTranslate(0, -1.5, 3.75).multiply(currentgenerator);
+      way = 1;
       break;
     case "b":
-      joint.rotor += 15;
-      generatorBlobMatrix.setTranslate(0, 0, 0).rotate(joint.rotorMatrix, 0, 0, 1);
+      velocity+=0.2;
       break;
     case "B":
-      joint.rotor -= 15;
-      generatorBlobMatrix.setTranslate(0, 0, 0).rotate(joint.rotorMatrix, 0, 0, 1);
+      velocity-=0.2;
       break;
     case "ArrowUp":
       // Up pressed
@@ -501,6 +500,7 @@ function renderCube(matrixStack, matrixLocal) {
 
   // on safari 10, buffer cannot be disposed before drawing...
   gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
   gl.useProgram(null);
 }
 
@@ -668,6 +668,14 @@ window.addEventListener("load", (event) => {
    */
   (function animate() {
     draw();
-    //requestAnimationFrame(animate);
+    if(!pause){
+      if(way)
+        joint.rotor += velocity;
+      else{joint.rotor -= velocity;}
+    var currentgenerator = new Matrix4()
+      .rotate(-joint.rotor, 0, 0, 1)
+    rotorMatrix.setTranslate(0, -1.5, 3.75).multiply(currentgenerator);
+  }
+    requestAnimationFrame(animate);
   })();
 });
