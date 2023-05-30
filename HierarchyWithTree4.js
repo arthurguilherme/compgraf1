@@ -287,12 +287,12 @@ var cube = (() => {
 
     // (x, y, z): three numbers for each point
     for (var j = 0; j < 3; ++j) {
-      verticesArray.push(rawVertices[3 * index + j]);
+      verticesArray.push(rawVertices[3 * index  + j]);
     }
 
     // (r, g, b, a): four numbers for each point
     for (var j = 0; j < 4; ++j) {
-      colorsArray.push(rawColors[4 * face + j]);
+      colorsArray.push(rawColors[4 * 1 + j]);
     }
 
     // three numbers for each point
@@ -363,62 +363,52 @@ function generatorBlobleKeyPress(event) {
   let opt = document.getElementById("options");
   switch (ch) {
     case "t":
-      joint.blade += 15;
-      bladeMatrix.setTranslate(0, 0, 0).rotate(joint.shaft, 0, 0, 1);
+      joint.base += 15;
+      baseMatrix.setTranslate(0, -17.5, 0)
+      .rotate(joint.base, 0, 1, 0)
       break;
     case "T":
-      joint.blade -= 15;
-      //bladeMatrix.setTranslate(0, 0, 0).rotate(joint.shaft, 0, 0, 1);
-      break;
-    case "s":
-      joint.base += 15;
-      // rotate base clockwise about a point 2 units above its center
-      var currentbaseRot = new Matrix4()
-        .setTranslate(0, 2, 0)
-        .rotate(-joint.base, 1, 0, 0)
-        .translate(0, -2, 0);
-      baseMatrix.setTranslate(6.5, 2, 0).multiply(currentbaseRot);
-      break;
-    case "S":
       joint.base -= 15;
-      var currentbaseRot = new Matrix4()
-        .setTranslate(0, 2, 0)
-        .rotate(-joint.base, 1, 0, 0)
-        .translate(0, -2, 0);
-      baseMatrix.setTranslate(6.5, 2, 0).multiply(currentbaseRot);
+      baseMatrix.setTranslate(0, -17.5, 0)
+      .rotate(joint.base, 0, 1, 0)
       break;
-    case "a":
+    case "g":
       joint.generator += 15;
       // rotate generator clockwise about its top front corner
       var currentgenerator = new Matrix4()
-        .setTranslate(0, 2.5, 1.0)
-        .rotate(-joint.generator, 1, 0, 0)
-        .translate(0, -2.5, -1.0);
+        .setTranslate(0, 33, 0)
+        .rotate(-joint.generator, 0, 1, 0)
+        .translate(0, -14, 0);
       generatorMatrix.setTranslate(0, -5, 0).multiply(currentgenerator);
       break;
-    case "A":
+    case "G":
       joint.generator -= 15;
+      // rotate generator clockwise about its top front corner
       var currentgenerator = new Matrix4()
-        .setTranslate(0, 2.5, 1.0)
-        .rotate(-joint.generator, 1, 0, 0)
-        .translate(0, -2.5, -1.0);
+        .setTranslate(0, 33, 0)
+        .rotate(-joint.generator, 0, 1, 0)
+        .translate(0, -14, 0);
       generatorMatrix.setTranslate(0, -5, 0).multiply(currentgenerator);
       break;
-    case "h":
-      joint.generatorBlob += 15;
-      generatorBlobMatrix.setTranslate(0, -4, 0).rotate(joint.generatorBlob, 0, 1, 0);
-      break;
-    case "H":
-      joint.generatorBlob -= 15;
-      generatorBlobMatrix.setTranslate(0, -4, 0).rotate(joint.generatorBlob, 0, 1, 0);
-      break;
-    case "l":
+    case "r":
       joint.rotor += 15;
-      rotorMatrix.setTranslate(0, 7, 0).rotate(joint.rotor, 0, 1, 0);
+      var currentgenerator = new Matrix4()
+        .rotate(-joint.rotor, 0, 0, 1)
+      rotorMatrix.setTranslate(0, -1.5, 3.75).multiply(currentgenerator);
       break;
-    case "L":
+    case "R":
       joint.rotor -= 15;
-      rotorMatrix.setTranslate(0, 7, 0).rotate(joint.rotor, 0, 1, 0);
+      var currentgenerator = new Matrix4()
+        .rotate(-joint.rotor, 0, 0, 1)
+      rotorMatrix.setTranslate(0, -1.5, 3.75).multiply(currentgenerator);
+      break;
+    case "b":
+      joint.rotor += 15;
+      generatorBlobMatrix.setTranslate(0, 0, 0).rotate(joint.rotorMatrix, 0, 0, 1);
+      break;
+    case "B":
+      joint.rotor -= 15;
+      generatorBlobMatrix.setTranslate(0, 0, 0).rotate(joint.rotorMatrix, 0, 0, 1);
       break;
     case "ArrowUp":
       // Up pressed
@@ -529,27 +519,27 @@ function draw(useRotator = true) {
   s.push(baseMatrix);
   renderCube(s, baseMatrixLocal);
 
-  // shaft relative to shaftDummy
+  // shaft relative to base
   s.push(new Matrix4(s.top()).multiply(shaftMatrix));
   renderCube(s, shaftMatrixLocal);
 
-  // generator relative to generatorDummy
+  // generator relative to shaft
   s.push(new Matrix4(s.top()).multiply(generatorMatrix));
   renderCube(s, generatorMatrixLocal);
 
-  // generatorBlob relative to generatorDummy
+  // generatorBlob relative to generator
   s.push(new Matrix4(s.top()).multiply(generatorBlobMatrix));
   renderCube(s, generatorBlobMatrixLocal);
 
-  // rotor relative to rotorDummy
+  // rotor relative to generatorBlob
   s.push(new Matrix4(s.top()).multiply(rotorMatrix));
   renderCube(s, rotorMatrixLocal);
 
-  // rotorBlob relative to rotorDummy
+  // rotorBlob relative to rotor
   s.push(new Matrix4(s.top()).multiply(rotorBlobMatrix));
   renderCube(s, rotorBlobMatrixLocal);
 
-  // blade relative to rotorDummy
+  // blade relative to rotorBlob
   s.push(new Matrix4(s.top()).multiply(bladeMatrix));
   renderCube(s, bladeMatrixLocal);
   s.pop();
@@ -652,7 +642,7 @@ window.addEventListener("load", (event) => {
   gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
   // specify a fill color for clearing the framebuffer
-  gl.clearColor(0.9, 0.9, 0.9, 1.0);
+  gl.clearColor(0.0, 0.0, 1.0, 1.0);
 
   gl.enable(gl.DEPTH_TEST);
   gl.enable(gl.CULL_FACE);
@@ -678,6 +668,6 @@ window.addEventListener("load", (event) => {
    */
   (function animate() {
     draw();
-    // requestAnimationFrame(animate);
+    //requestAnimationFrame(animate);
   })();
 });
